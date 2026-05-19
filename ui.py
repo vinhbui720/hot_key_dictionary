@@ -794,11 +794,9 @@ class LookupMixin:
         self._lookup_thread.start()
 
     def lookup_word(self, word: str):
-        """Public entry: fill search bar and trigger lookup."""
+        """Public entry: fill search bar and trigger lookup.
+        Does NOT call show/activateWindow – callers handle visibility."""
         self.search_input.setText(word)
-        self.show()
-        self.raise_()
-        self.activateWindow()
         self._do_lookup()
         if cfg_mod.cfg().get("tts_autoplay", False) and cfg_mod.cfg().get("tts_enabled", True):
             QTimer.singleShot(800, lambda: tts.speak(word))
@@ -938,6 +936,7 @@ class QuickPopup(LookupMixin, QWidget):
         self._current_word = ""
         self._lookup_thread = None
         self._main_window = None      # set by main.py after both are created
+        self._showing = False         # guard: blocks focus-hide during show_at_cursor
 
         c = cfg_mod.cfg()
         self.resize(c.get("popup_width", 520), c.get("popup_height", 480))
@@ -965,19 +964,12 @@ class QuickPopup(LookupMixin, QWidget):
         QApplication.instance().focusWindowChanged.connect(self._on_focus_changed)
 
     def _on_focus_changed(self, new_win):
-        """Hide when focus leaves this popup entirely."""
-        if not self.isVisible():
+        """Hide when focus leaves this popup to another window/app."""
+        if self._showing or not self.isVisible():
             return
-        # new_win is the QWindow that received focus (can be None)
-        # We hide unless the focus is still on us or one of our child QWindows
-        if new_win is None:
-            # Focus went to a non-Qt app – hide immediately
-            QTimer.singleShot(0, self.hide)
-        else:
-            # Check if the new focus window belongs to this widget
-            our_win = self.windowHandle()
-            if our_win is None or new_win != our_win:
-                QTimer.singleShot(0, self.hide)
+        our_win = self.windowHandle()
+        if new_win is None or (our_win is not None and new_win != our_win):
+            self.hide()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1034,14 +1026,36 @@ class QuickPopup(LookupMixin, QWidget):
     # ── Positioning ──────────────────────────────────────────────────────────
 
     def show_at_cursor(self, word: str = ""):
-        """Show below the cursor; optionally prefill + lookup a word."""
-        pos  = QCursor.pos()
-        geo  = QApplication.primaryScreen().availableGeometry()
+        """
+        Show below the cursor. Safe to call multiple times:
+        - Already visible + same word  → just refocus, no flicker
+        - Already visible + new word   → update in-place, re-lookup
+        - Hidden                       → move to cursor and show
+        """
+        if self.isVisible():
+            if word and word != self._current_word:
+                # New word while open – update in-place, no reposition
+                self._showing = True
+                self.raise_()
+                self.activateWindow()
+                self.search_input.setFocus()
+                QTimer.singleShot(150, self._unblock_focus)
+                self.lookup_word(word)
+            else:
+                # No new word – just bring to front
+                self.raise_()
+                self.activateWindow()
+                self.search_input.setFocus()
+            return
+
+        # Not visible – move to cursor then show
+        self._showing = True
+
+        pos = QCursor.pos()
+        geo = QApplication.primaryScreen().availableGeometry()
         w, h = self.width(), self.height()
-
         x = pos.x() - 20
-        y = pos.y() + 18   # 18px below cursor tip
-
+        y = pos.y() + 18
         x = max(geo.left(), min(x, geo.right()  - w))
         y = max(geo.top(),  min(y, geo.bottom() - h))
 
@@ -1051,8 +1065,20 @@ class QuickPopup(LookupMixin, QWidget):
         self.activateWindow()
         self.search_input.setFocus()
 
+        # Unblock after Qt settles (one paint + focus-in event cycle)
+        QTimer.singleShot(300, self._unblock_focus)
+
         if word:
             self.lookup_word(word)
+
+    def _unblock_focus(self):
+        """Re-enable focus-hide; check if focus already left during the guard."""
+        self._showing = False
+        if self.isVisible():
+            our_win = self.windowHandle()
+            active  = QApplication.instance().focusWindow()
+            if active is None or (our_win is not None and active != our_win):
+                self.hide()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
@@ -1216,8 +1242,9 @@ class MainWindow(LookupMixin, QWidget):
     def _history_double_click(self, row, col):
         item = self.history_table.item(row, 0)
         if item:
-            self.lookup_word(item.text())
+            self.show_window()          # ensure window is visible first
             self.tabs.setCurrentIndex(0)
+            self.lookup_word(item.text())
 
     # ── Reviews ───────────────────────────────────────────────────────────────
 
