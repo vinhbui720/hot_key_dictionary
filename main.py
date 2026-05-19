@@ -340,22 +340,25 @@ def _run_app():
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Vinh's Dictionary")
     app.setApplicationDisplayName("Vinh's Dictionary")
-    app.setDesktopFileName("vinh-dictionary")   # must match .desktop filename
+    app.setDesktopFileName("vinh-dictionary")
 
-    # Import UI after QApplication is created
-    from ui import DictionaryPopup
-    popup = DictionaryPopup()
+    from ui import QuickPopup, MainWindow
 
-    # Set window icon (shows in taskbar + alt-tab)
+    # ── Two windows ──────────────────────────────────────────────────────────
+    # quick  – frameless, cursor-anchored, hotkey-triggered, auto-hides
+    # main   – full app, tray-menu-only, stable
+    quick  = QuickPopup()
+    main_w = MainWindow()
+
+    # Cross-reference so QuickPopup can trigger "Open Full →"
+    quick._main_window = main_w
+
     app_icon = make_tray_icon()
     app.setWindowIcon(app_icon)
-    popup.setWindowIcon(app_icon)
+    quick.setWindowIcon(app_icon)
+    main_w.setWindowIcon(app_icon)
 
     # ── Signal file watcher ──────────────────────────────────────────────────
-    # Polls signal files written by start.sh / hotkey_trigger.py:
-    #   data/show.signal    → open popup
-    #   data/lookup.signal  → lookup a word (content = word)
-    #   data/action.signal  → switch tab (content = review | settings)
     show_sig   = APP_DIR / "data" / "show.signal"
     lookup_sig = APP_DIR / "data" / "lookup.signal"
     action_sig = APP_DIR / "data" / "action.signal"
@@ -366,7 +369,7 @@ def _run_app():
                 word = lookup_sig.read_text(encoding="utf-8").strip()
                 lookup_sig.unlink(missing_ok=True)
                 if word:
-                    popup.lookup_word(word)
+                    quick.show_at_cursor(word)
                     return
             except Exception:
                 lookup_sig.unlink(missing_ok=True)
@@ -374,48 +377,49 @@ def _run_app():
             try:
                 action = action_sig.read_text(encoding="utf-8").strip()
                 action_sig.unlink(missing_ok=True)
-                tab_map = {"review": 1, "settings": popup.settings_tab_index}
-                if action in tab_map:
-                    popup.tabs.setCurrentIndex(tab_map[action])
-                popup.show_at_cursor()
+                main_w.show_window(action)   # e.g. "review" or "settings"
                 return
             except Exception:
                 action_sig.unlink(missing_ok=True)
         if show_sig.exists():
             show_sig.unlink(missing_ok=True)
-            popup.show_at_cursor()
+            quick.show_at_cursor()
 
     signal_timer = QTimer()
     signal_timer.timeout.connect(check_signal_files)
     signal_timer.start(300)
 
-    # ── Bridge connections ──
-    bridge.lookup_signal.connect(popup.lookup_word)
-    bridge.open_signal.connect(popup.show_at_cursor)
+    # ── Bridge connections ───────────────────────────────────────────────────
+    # Hotkey always opens the QuickPopup
+    bridge.lookup_signal.connect(quick.show_at_cursor)
+    bridge.open_signal.connect(quick.show_at_cursor)
 
-    # ── Hotkey change signal ──
-    popup.hotkey_changed.connect(hotkey_manager.restart)
+    # ── Hotkey change ────────────────────────────────────────────────────────
+    main_w.hotkey_changed.connect(hotkey_manager.restart)
 
-    # ── System tray ──
+    # ── System tray ──────────────────────────────────────────────────────────
     tray = None
     if QSystemTrayIcon.isSystemTrayAvailable():
         tray = QSystemTrayIcon(make_tray_icon(), parent=app)
-        hk = cfg_mod.cfg().get("hotkey", "F6").upper()
+        hk = cfg_mod.cfg().get("hotkey", "F9").upper()
         tray.setToolTip(f"Vinh's Dictionary  [{hk}]")
 
         menu = QMenu()
+
         act_open = QAction("📖 Open Dictionary", menu)
-        act_open.triggered.connect(popup.show_at_cursor)
+        act_open.triggered.connect(lambda: main_w.show_window())
         menu.addAction(act_open)
 
         act_review = QAction("🔁 Review Words", menu)
-        act_review.triggered.connect(lambda: (popup.tabs.setCurrentIndex(1), popup.show()))
+        act_review.triggered.connect(lambda: main_w.show_window("review"))
         menu.addAction(act_review)
 
+        act_history = QAction("📋 History", menu)
+        act_history.triggered.connect(lambda: main_w.show_window("history"))
+        menu.addAction(act_history)
+
         act_settings = QAction("⚙️  Settings", menu)
-        act_settings.triggered.connect(
-            lambda: (popup.tabs.setCurrentIndex(popup.settings_tab_index), popup.show())
-        )
+        act_settings.triggered.connect(lambda: main_w.show_window("settings"))
         menu.addAction(act_settings)
 
         menu.addSeparator()
@@ -425,50 +429,31 @@ def _run_app():
 
         tray.setContextMenu(menu)
         tray.activated.connect(
-            lambda reason: popup.show_at_cursor()
-            if reason == QSystemTrayIcon.Trigger else None   # single-click opens
+            lambda reason: main_w.show_window()
+            if reason == QSystemTrayIcon.Trigger else None
         )
         tray.show()
 
-        # Update tooltip + GNOME binding when hotkey changes
         def on_hotkey_changed(hk):
             tray.setToolTip(f"Vinh's Dictionary  [{hk.upper()}]")
             sync_gnome_binding(hk)
-        popup.hotkey_changed.connect(on_hotkey_changed)
+        main_w.hotkey_changed.connect(on_hotkey_changed)
         log.info(f"[tray] Icon shown, tray available: {QSystemTrayIcon.isSystemTrayAvailable()}")
     else:
         log.info("[tray] System tray NOT available on this desktop")
 
-    # ── Review notifications ──
+    # ── Review notifications ──────────────────────────────────────────────────
     interval_ms = cfg_mod.cfg().get("notify_interval_minutes", 30) * 60 * 1000
     review_timer = QTimer()
     review_timer.timeout.connect(check_and_notify_reviews)
     review_timer.start(interval_ms)
     QTimer.singleShot(4000, check_and_notify_reviews)
 
-    # ── Start hotkey listener (XWayland apps) + sync GNOME binding (all apps) ──
+    # ── Hotkey + GNOME binding ────────────────────────────────────────────────
     hotkey_manager.start()
     sync_gnome_binding(cfg_mod.cfg().get("hotkey", "f9"))
 
-    # ── Show window on startup ────────────────────────────────────────────────
-    # Open immediately so the user sees the app appeared; honour tab hint from
-    # start.sh (DICT_OPEN_TAB env var set when called with --review/--settings)
-    open_tab = os.environ.get("DICT_OPEN_TAB", "").strip().lower()
-    def _show_on_startup():
-        tab_map = {"review": 1, "settings": popup.settings_tab_index}
-        if open_tab in tab_map:
-            popup.tabs.setCurrentIndex(tab_map[open_tab])
-        popup.show_at_cursor()
-    QTimer.singleShot(400, _show_on_startup)   # small delay so tray icon settles first
-
-    # ── Startup notification ──
-    hk = cfg_mod.cfg().get("hotkey", "F6").upper()
-    QTimer.singleShot(1500, lambda: send_notification(
-        "📖 Vinh's Dictionary",
-        f"Running! Highlight any word → press {hk} to look it up."
-    ))
-
-    log.info(f"[app] Ready. Hotkey: {cfg_mod.cfg().get('hotkey','f6').upper()}")
+    log.info(f"[app] Ready. Hotkey: {cfg_mod.cfg().get('hotkey','f9').upper()}")
     log.info(f"[app] Config: {cfg_mod.CONFIG_PATH}")
     log.info(f"[app] DB:     {db.DB_PATH}")
 

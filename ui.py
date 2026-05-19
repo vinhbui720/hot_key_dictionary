@@ -1,10 +1,10 @@
 """
-Main PyQt5 UI for the Dictionary App.
-Dark minimal popup with:
-- Lookup tab (search field always visible, similar-word suggestions on miss)
-- Review tab (sentence writing + AI check)
-- History tab
-- Settings tab (configurable hotkey, TTS, AI, intervals, etc.)
+Vinh's Dictionary – UI
+Two-window design:
+  QuickPopup  – frameless, cursor-anchored, Lookup only; shown by F9 hotkey;
+                hides automatically when the user clicks outside.
+  MainWindow  – full app (all tabs, normal window chrome); opened only via
+                the system-tray / Ubuntu-header icon menu.
 """
 import sys
 import json
@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon, QMenu, QAction, QCheckBox, QSpinBox,
     QComboBox, QFormLayout, QGroupBox, QSlider, QSplitter
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QSize, QEvent
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QCursor
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -443,8 +443,8 @@ class ReviewWidget(QWidget):
 # ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 class SettingsTab(QWidget):
-    settings_saved  = pyqtSignal(dict)
-    database_cleared = pyqtSignal()     # tells parent to refresh history
+    settings_saved   = pyqtSignal(dict)
+    database_cleared = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -465,33 +465,23 @@ class SettingsTab(QWidget):
         hk_group = QGroupBox("HOTKEY")
         hk_layout = QFormLayout(hk_group)
         hk_layout.setSpacing(10)
-
         self.hotkey_input = QLineEdit()
-        self.hotkey_input.setPlaceholderText("e.g. f6  or  ctrl+d  or  alt+f2")
-        self.hotkey_input.setToolTip(
-            "Single key: f1–f12\n"
-            "Combo: ctrl+d, alt+f2, ctrl+shift+d\n"
-            "Changes take effect immediately after Save."
-        )
+        self.hotkey_input.setPlaceholderText("e.g. f9  or  ctrl+d  or  alt+f2")
         hk_layout.addRow("Hotkey:", self.hotkey_input)
-
-        hotkey_hint = QLabel("Tip: F1–F12 work best. Combos: ctrl+d, alt+f2, ctrl+shift+d")
-        hotkey_hint.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
-        hotkey_hint.setWordWrap(True)
-        hk_layout.addRow("", hotkey_hint)
+        hint = QLabel("Tip: F1–F12 work best. Combos: ctrl+d, alt+f2, ctrl+shift+d")
+        hint.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
+        hint.setWordWrap(True)
+        hk_layout.addRow("", hint)
         layout.addWidget(hk_group)
 
         # ── TTS ─────────────────────────────────────────────────
         tts_group = QGroupBox("TEXT TO SPEECH")
         tts_layout = QFormLayout(tts_group)
         tts_layout.setSpacing(10)
-
         self.tts_enabled = QCheckBox("Enable TTS")
         tts_layout.addRow(self.tts_enabled)
-
         self.tts_autoplay = QCheckBox("Auto-speak word when popup opens")
         tts_layout.addRow(self.tts_autoplay)
-
         speed_row = QHBoxLayout()
         self.tts_speed = QSlider(Qt.Horizontal)
         self.tts_speed.setRange(80, 300)
@@ -509,17 +499,14 @@ class SettingsTab(QWidget):
         dict_group = QGroupBox("DICTIONARY")
         dict_layout = QFormLayout(dict_group)
         dict_layout.setSpacing(10)
-
         self.max_defs = QSpinBox()
         self.max_defs.setRange(1, 15)
         self.max_defs.setSuffix(" definitions")
         dict_layout.addRow("Show max:", self.max_defs)
-
         self.max_syns = QSpinBox()
         self.max_syns.setRange(1, 20)
         self.max_syns.setSuffix(" synonyms")
         dict_layout.addRow("Synonyms:", self.max_syns)
-
         self.online_timeout = QSpinBox()
         self.online_timeout.setRange(2, 15)
         self.online_timeout.setSuffix(" sec")
@@ -530,10 +517,8 @@ class SettingsTab(QWidget):
         sr_group = QGroupBox("SPACED REPETITION INTERVALS (days)")
         sr_layout = QFormLayout(sr_group)
         sr_layout.setSpacing(8)
-
         self.sr_inputs = []
-        labels = ["1st review:", "2nd review:", "3rd review:", "4th review:", "5th review:"]
-        for lbl in labels:
+        for lbl in ["1st review:", "2nd review:", "3rd review:", "4th review:", "5th review:"]:
             spin = QSpinBox()
             spin.setRange(1, 365)
             spin.setSuffix(" days")
@@ -545,7 +530,6 @@ class SettingsTab(QWidget):
         ai_group = QGroupBox("AI SENTENCE CHECKER")
         ai_layout = QFormLayout(ai_group)
         ai_layout.setSpacing(10)
-
         self.ollama_model = QComboBox()
         self.ollama_model.setEditable(True)
         self.ollama_model.addItems([
@@ -553,11 +537,9 @@ class SettingsTab(QWidget):
             "mistral:7b", "phi3:mini", "gemma2:2b"
         ])
         ai_layout.addRow("Ollama model:", self.ollama_model)
-
         self.ollama_url = QLineEdit()
         self.ollama_url.setPlaceholderText("http://localhost:11434")
         ai_layout.addRow("Ollama URL:", self.ollama_url)
-
         self.languagetool_enabled = QCheckBox("Enable LanguageTool grammar check (requires internet)")
         ai_layout.addRow(self.languagetool_enabled)
         layout.addWidget(ai_group)
@@ -566,10 +548,8 @@ class SettingsTab(QWidget):
         notif_group = QGroupBox("NOTIFICATIONS")
         notif_layout = QFormLayout(notif_group)
         notif_layout.setSpacing(10)
-
         self.notify_reviews = QCheckBox("Notify when words are due for review")
         notif_layout.addRow(self.notify_reviews)
-
         self.notify_interval = QSpinBox()
         self.notify_interval.setRange(5, 240)
         self.notify_interval.setSuffix(" min")
@@ -577,16 +557,11 @@ class SettingsTab(QWidget):
         layout.addWidget(notif_group)
 
         # ── Window ──────────────────────────────────────────────
-        win_group = QGroupBox("WINDOW")
+        win_group = QGroupBox("MAIN WINDOW SIZE")
         win_layout = QFormLayout(win_group)
         win_layout.setSpacing(10)
-
-        self.always_on_top = QCheckBox("Always on top")
+        self.always_on_top = QCheckBox("Main window always on top")
         win_layout.addRow(self.always_on_top)
-
-        self.show_at_cursor = QCheckBox("Show popup near cursor (otherwise center screen)")
-        win_layout.addRow(self.show_at_cursor)
-
         w_row = QHBoxLayout()
         self.win_width = QSpinBox()
         self.win_width.setRange(400, 1200)
@@ -602,7 +577,21 @@ class SettingsTab(QWidget):
         win_layout.addRow("Size:", w_row)
         layout.addWidget(win_group)
 
-        # ── Save button ──────────────────────────────────────────
+        # ── Quick Popup ──────────────────────────────────────────
+        qp_group = QGroupBox("QUICK POPUP (hotkey)")
+        qp_layout = QFormLayout(qp_group)
+        qp_layout.setSpacing(10)
+        self.popup_width = QSpinBox()
+        self.popup_width.setRange(300, 900)
+        self.popup_width.setSuffix("px")
+        qp_layout.addRow("Width:", self.popup_width)
+        self.popup_height = QSpinBox()
+        self.popup_height.setRange(200, 800)
+        self.popup_height.setSuffix("px")
+        qp_layout.addRow("Height:", self.popup_height)
+        layout.addWidget(qp_group)
+
+        # ── Save ────────────────────────────────────────────────
         save_btn = QPushButton("Save Settings")
         save_btn.setObjectName("btn_save")
         save_btn.setFixedHeight(42)
@@ -614,21 +603,18 @@ class SettingsTab(QWidget):
         self.status_label.setStyleSheet(f"color: {GREEN}; font-size: 13px;")
         layout.addWidget(self.status_label)
 
-        # ── Database section ──────────────────────────────────────────────────
+        # ── Database ────────────────────────────────────────────
         db_group = QGroupBox("DATABASE")
         db_layout = QVBoxLayout(db_group)
         db_layout.setSpacing(10)
-
         self.db_stats_label = QLabel()
         self.db_stats_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 12px;")
         self.db_stats_label.setWordWrap(True)
         db_layout.addWidget(self.db_stats_label)
-
         db_btn_row = QHBoxLayout()
         refresh_db_btn = QPushButton("Refresh Stats")
         refresh_db_btn.clicked.connect(self._refresh_db_stats)
         db_btn_row.addWidget(refresh_db_btn)
-
         clear_btn = QPushButton("Clear All Data")
         clear_btn.setStyleSheet(f"background: {RED}; color: white; border: none; font-weight: bold;")
         clear_btn.clicked.connect(self._clear_database)
@@ -646,31 +632,30 @@ class SettingsTab(QWidget):
 
     def _load_values(self):
         c = cfg_mod.cfg()
-        self.hotkey_input.setText(c.get("hotkey", "f6"))
+        self.hotkey_input.setText(c.get("hotkey", "f9"))
         self.tts_enabled.setChecked(c.get("tts_enabled", True))
         self.tts_autoplay.setChecked(c.get("tts_autoplay", False))
         self.tts_speed.setValue(c.get("tts_speed", 150))
         self.max_defs.setValue(c.get("max_definitions", 6))
         self.max_syns.setValue(c.get("max_synonyms", 10))
         self.online_timeout.setValue(c.get("online_timeout", 5))
-
         intervals = c.get("sr_intervals", [1, 3, 7, 20, 30])
         for i, spin in enumerate(self.sr_inputs):
             spin.setValue(intervals[i] if i < len(intervals) else 30)
-
         self.ollama_model.setCurrentText(c.get("ollama_model", "llama3.2:3b"))
         self.ollama_url.setText(c.get("ollama_url", "http://localhost:11434"))
         self.languagetool_enabled.setChecked(c.get("languagetool_enabled", True))
         self.notify_reviews.setChecked(c.get("notify_reviews", True))
         self.notify_interval.setValue(c.get("notify_interval_minutes", 30))
         self.always_on_top.setChecked(c.get("always_on_top", True))
-        self.show_at_cursor.setChecked(c.get("show_at_cursor", True))
         self.win_width.setValue(c.get("window_width", 580))
         self.win_height.setValue(c.get("window_height", 600))
+        self.popup_width.setValue(c.get("popup_width", 520))
+        self.popup_height.setValue(c.get("popup_height", 480))
 
     def _save(self):
         new_cfg = cfg_mod.update(
-            hotkey=self.hotkey_input.text().strip().lower() or "f6",
+            hotkey=self.hotkey_input.text().strip().lower() or "f9",
             tts_enabled=self.tts_enabled.isChecked(),
             tts_autoplay=self.tts_autoplay.isChecked(),
             tts_speed=self.tts_speed.value(),
@@ -684,16 +669,15 @@ class SettingsTab(QWidget):
             notify_reviews=self.notify_reviews.isChecked(),
             notify_interval_minutes=self.notify_interval.value(),
             always_on_top=self.always_on_top.isChecked(),
-            show_at_cursor=self.show_at_cursor.isChecked(),
             window_width=self.win_width.value(),
             window_height=self.win_height.value(),
+            popup_width=self.popup_width.value(),
+            popup_height=self.popup_height.value(),
         )
-        # Invalidate dict api cache
         cfg_mod.reload()
         ai_checker.OLLAMA_MODEL = new_cfg.get("ollama_model", "llama3.2:3b")
         ai_checker.OLLAMA_URL = new_cfg.get("ollama_url", "http://localhost:11434") + "/api/generate"
-
-        self.status_label.setText("✅ Saved! Hotkey and window changes take effect immediately.")
+        self.status_label.setText("✅ Saved!")
         QTimer.singleShot(3000, lambda: self.status_label.setText(""))
         self.settings_saved.emit(new_cfg)
 
@@ -714,10 +698,8 @@ class SettingsTab(QWidget):
             return
         reply = QMessageBox.question(
             self, "Clear all data",
-            f"This will permanently delete all {total} word(s) and their "
-            f"review history.\n\nAre you sure?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            f"This will permanently delete all {total} word(s) and their review history.\n\nAre you sure?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             deleted = db.clear_all()
@@ -731,103 +713,25 @@ class SettingsTab(QWidget):
             self.database_cleared.emit()
 
 
-# ─── Main Dictionary Popup ────────────────────────────────────────────────────
+# ─── Shared lookup mixin ──────────────────────────────────────────────────────
+# Both QuickPopup and MainWindow use this to avoid duplicating lookup logic.
 
-class DictionaryPopup(QWidget):
-    hotkey_changed = pyqtSignal(str)   # emitted when user saves new hotkey
+class LookupMixin:
+    """
+    Mixin that provides a fully functional lookup area.
+    The host widget must call _init_lookup_mixin(layout) once, passing the
+    QVBoxLayout where the search bar + result scroll should be inserted.
+    It must also define self._lookup_thread = None before calling.
+    """
 
-    def __init__(self):
-        super().__init__()
-        c = cfg_mod.cfg()
-        self.setWindowTitle("Vinh's Dictionary")
-        self.setObjectName("vinh-dictionary")   # WM_CLASS for Ubuntu launcher
-        self.setMinimumSize(500, 400)
-        self.resize(c.get("window_width", 580), c.get("window_height", 600))
-
-        flags = Qt.Window
-        if c.get("always_on_top", True):
-            flags |= Qt.WindowStaysOnTopHint
-        self.setWindowFlags(flags)
-        self.setStyleSheet(STYLE)
-
-        self._current_word = ""
-        self._current_result = None
-        self._lookup_thread = None
-        self.settings_tab_index = 3   # updated after tabs built
-
-        self._build_ui()
-        self._center_on_screen()
-
-        self._review_timer = QTimer(self)
-        self._review_timer.timeout.connect(self._check_reviews)
-        self._review_timer.start(30 * 60 * 1000)
-        self._check_reviews()
-
-    def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # ── Header ──
-        header = QWidget()
-        header.setFixedHeight(52)
-        header.setStyleSheet(f"background: {BG2}; border-bottom: 1px solid {BORDER};")
-        hdr = QHBoxLayout(header)
-        hdr.setContentsMargins(16, 0, 12, 0)
-
-        title = QLabel("📖 Vinh's Dictionary")
-        title.setStyleSheet(f"color: {ACCENT}; font-size: 15px; font-weight: bold;")
-        hdr.addWidget(title)
-        hdr.addStretch()
-
-        self.due_badge = QLabel()
-        self.due_badge.setObjectName("badge_due")
-        self.due_badge.hide()
-        hdr.addWidget(self.due_badge)
-
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet(f"background: transparent; border: none; color: {MUTED}; font-size: 16px;")
-        close_btn.clicked.connect(self.hide)
-        hdr.addWidget(close_btn)
-        root.addWidget(header)
-
-        # ── Tabs ──
-        self.tabs = QTabWidget()
-
-        self.lookup_tab = self._build_lookup_tab()
-        self.tabs.addTab(self.lookup_tab, "Lookup")
-
-        self.review_tab_container = QWidget()
-        self.review_tab_layout = QVBoxLayout(self.review_tab_container)
-        self.review_tab_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs.addTab(self.review_tab_container, "Review")
-
-        self.history_tab = self._build_history_tab()
-        self.tabs.addTab(self.history_tab, "History")
-
-        self.settings_widget = SettingsTab()
-        self.settings_widget.settings_saved.connect(self._on_settings_saved)
-        self.settings_widget.database_cleared.connect(self._load_history)
-        self.settings_widget.database_cleared.connect(self._check_reviews)
-        self.tabs.addTab(self.settings_widget, "Settings")
-        self.settings_tab_index = 3
-
-        root.addWidget(self.tabs)
-
-    # ── Lookup tab ────────────────────────────────────────────────────────────
-
-    def _build_lookup_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        # Search bar (always visible, manually typeable)
+    def _init_lookup_mixin(self, layout: QVBoxLayout):
+        # Search bar
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        hotkey = cfg_mod.cfg().get("hotkey", "F6").upper()
-        self.search_input.setPlaceholderText(f"Type a word here, or highlight text and press {hotkey}...")
+        hotkey = cfg_mod.cfg().get("hotkey", "F9").upper()
+        self.search_input.setPlaceholderText(
+            f"Type a word or highlight text → {hotkey}…"
+        )
         self.search_input.returnPressed.connect(self._do_lookup)
         search_row.addWidget(self.search_input)
 
@@ -839,13 +743,15 @@ class DictionaryPopup(QWidget):
 
         clear_btn = QPushButton("✕")
         clear_btn.setFixedSize(30, 38)
-        clear_btn.setStyleSheet(f"color: {MUTED}; background: transparent; border: none; font-size: 13px;")
+        clear_btn.setStyleSheet(
+            f"color: {MUTED}; background: transparent; border: none; font-size: 13px;"
+        )
         clear_btn.setToolTip("Clear")
         clear_btn.clicked.connect(self._clear_search)
         search_row.addWidget(clear_btn)
         layout.addLayout(search_row)
 
-        # Result area
+        # Result scroll area
         self.result_scroll = QScrollArea()
         self.result_scroll.setWidgetResizable(True)
         self.result_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -857,52 +763,10 @@ class DictionaryPopup(QWidget):
         self.result_scroll.setWidget(self.result_content)
         layout.addWidget(self.result_scroll)
 
-        return widget
-
     def _clear_search(self):
         self.search_input.clear()
         self._clear_results()
         self.search_input.setFocus()
-
-    # ── History tab ────────────────────────────────────────────────────────────
-
-    def _build_history_tab(self):
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(12, 12, 12, 12)
-
-        top_row = QHBoxLayout()
-        title = QLabel("Your word history")
-        title.setStyleSheet(f"color: {TEXT_DIM}; font-size: 13px;")
-        top_row.addWidget(title)
-        top_row.addStretch()
-        refresh_btn = QPushButton("↻ Refresh")
-        refresh_btn.setFixedWidth(90)
-        refresh_btn.clicked.connect(self._load_history)
-        top_row.addWidget(refresh_btn)
-        layout.addLayout(top_row)
-
-        self.history_table = QTableWidget()
-        self.history_table.setColumnCount(5)
-        self.history_table.setHorizontalHeaderLabels(["Word", "Last Lookup", "Next Review", "Stage", "Status"])
-        h = self.history_table.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.Stretch)
-        for i in range(1, 5):
-            h.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-        self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.history_table.verticalHeader().setVisible(False)
-        self.history_table.cellDoubleClicked.connect(self._history_double_click)
-        layout.addWidget(self.history_table)
-
-        hint = QLabel("💡 Double-click a word to look it up again")
-        hint.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
-        layout.addWidget(hint)
-
-        self._load_history()
-        return widget
-
-    # ── Results rendering ─────────────────────────────────────────────────────
 
     def _clear_results(self):
         while self.result_layout.count() > 1:
@@ -912,7 +776,7 @@ class DictionaryPopup(QWidget):
 
     def _show_loading(self):
         self._clear_results()
-        loading = QLabel("⏳ Looking up...")
+        loading = QLabel("⏳ Looking up…")
         loading.setAlignment(Qt.AlignCenter)
         loading.setStyleSheet(f"color: {TEXT_DIM}; font-size: 15px;")
         self.result_layout.insertWidget(0, loading)
@@ -930,19 +794,16 @@ class DictionaryPopup(QWidget):
         self._lookup_thread.start()
 
     def lookup_word(self, word: str):
-        """Public: called by hotkey bridge."""
+        """Public entry: fill search bar and trigger lookup."""
         self.search_input.setText(word)
-        self.tabs.setCurrentIndex(0)
         self.show()
         self.raise_()
         self.activateWindow()
         self._do_lookup()
-        # Auto-play TTS if configured
         if cfg_mod.cfg().get("tts_autoplay", False) and cfg_mod.cfg().get("tts_enabled", True):
             QTimer.singleShot(800, lambda: tts.speak(word))
 
     def _on_result(self, result: dict):
-        self._current_result = result
         self._clear_results()
 
         db.upsert_word(
@@ -986,7 +847,6 @@ class DictionaryPopup(QWidget):
 
         self.result_layout.insertWidget(idx, top_card); idx += 1
 
-        # Definitions
         if result.get("definitions"):
             hdr = QLabel("DEFINITIONS")
             hdr.setObjectName("section_header")
@@ -995,12 +855,10 @@ class DictionaryPopup(QWidget):
                 card = DefinitionCard(d.get("pos",""), d.get("definition",""), d.get("example",""))
                 self.result_layout.insertWidget(idx, card); idx += 1
 
-        # Synonyms
         if result.get("synonyms"):
             hdr2 = QLabel("SYNONYMS")
             hdr2.setObjectName("section_header")
             self.result_layout.insertWidget(idx, hdr2); idx += 1
-
             syn_frame = QFrame()
             syn_frame.setObjectName("card")
             syn_l = QHBoxLayout(syn_frame)
@@ -1018,29 +876,23 @@ class DictionaryPopup(QWidget):
             syn_l.addStretch()
             self.result_layout.insertWidget(idx, syn_frame); idx += 1
 
-        self._load_history()
+        # Notify main window to refresh history (if we're the quick popup)
+        self._notify_history_refresh()
 
     def _on_not_found(self, word: str, suggestions: list):
-        """Word not found - show helpful similar word suggestions instead of silent fail."""
         self._clear_results()
-
-        # Error message
         err_frame = QFrame()
         err_frame.setObjectName("card")
         err_l = QVBoxLayout(err_frame)
         err_l.setContentsMargins(16, 14, 16, 14)
         err_l.setSpacing(8)
-
         err_msg = QLabel(f'❌  Word not found: "<b>{word}</b>"')
         err_msg.setStyleSheet(f"color: {RED}; font-size: 14px;")
         err_l.addWidget(err_msg)
-
         if suggestions:
             did_you_mean = QLabel("Did you mean:")
             did_you_mean.setObjectName("suggest_label")
             err_l.addWidget(did_you_mean)
-
-            # Suggestion buttons
             btn_row = QHBoxLayout()
             btn_row.setSpacing(8)
             for sug in suggestions:
@@ -1058,10 +910,287 @@ class DictionaryPopup(QWidget):
             no_sug = QLabel("No similar words found. Check spelling?")
             no_sug.setStyleSheet(f"color: {TEXT_DIM}; font-size: 13px;")
             err_l.addWidget(no_sug)
-
         self.result_layout.insertWidget(0, err_frame)
 
-    # ── History ───────────────────────────────────────────────────────────────
+    def _notify_history_refresh(self):
+        """Override in subclass if needed."""
+        pass
+
+
+# ─── Quick Popup ─────────────────────────────────────────────────────────────
+# Frameless, no window controls, appears below the mouse cursor.
+# Hides automatically when focus is lost (user clicks outside).
+
+class QuickPopup(LookupMixin, QWidget):
+    """
+    Lightweight lookup popup triggered by hotkey.
+    - Frameless, tool-window style (no titlebar, no taskbar entry)
+    - Positioned directly below the mouse cursor
+    - Auto-hides on focus-out (click anywhere outside)
+    - Stays alive while user types / clicks inside
+    """
+
+    # Signal so MainWindow can refresh its history tab after a lookup
+    word_looked_up = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current_word = ""
+        self._lookup_thread = None
+        self._main_window = None      # set by main.py after both are created
+
+        c = cfg_mod.cfg()
+        self.resize(c.get("popup_width", 520), c.get("popup_height", 480))
+
+        self.setWindowFlags(
+            Qt.Tool                     # no taskbar entry, no focus-steal from tray
+            | Qt.FramelessWindowHint    # no titlebar / window controls
+            | Qt.WindowStaysOnTopHint   # float above other apps
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setStyleSheet(STYLE + f"""
+            QuickPopup {{
+                border: 2px solid {BORDER};
+                border-radius: 10px;
+            }}
+        """)
+
+        self._build_ui()
+
+        # Install app-level event filter to detect clicks outside
+        QApplication.instance().installEventFilter(self)
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(8)
+
+        # Slim header: title + close button
+        hdr = QHBoxLayout()
+        title = QLabel("📖 Quick Lookup")
+        title.setStyleSheet(f"color: {ACCENT}; font-size: 13px; font-weight: bold;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+
+        open_full_btn = QPushButton("Open Full →")
+        open_full_btn.setFixedHeight(24)
+        open_full_btn.setStyleSheet(
+            f"background: transparent; color: {TEXT_DIM}; border: 1px solid {BORDER}; "
+            f"border-radius: 4px; font-size: 11px; padding: 0 8px;"
+        )
+        open_full_btn.setToolTip("Open the full dictionary window")
+        open_full_btn.clicked.connect(self._open_full)
+        hdr.addWidget(open_full_btn)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(24, 24)
+        close_btn.setStyleSheet(
+            f"background: transparent; border: none; color: {MUTED}; font-size: 14px;"
+        )
+        close_btn.clicked.connect(self.hide)
+        hdr.addWidget(close_btn)
+        root.addLayout(hdr)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f"color: {BORDER};")
+        root.addWidget(sep)
+
+        # Lookup area (search bar + results) from mixin
+        self._init_lookup_mixin(root)
+
+    def _open_full(self):
+        """Open the full MainWindow and hide this popup."""
+        if self._main_window:
+            self._main_window.show_window()
+        self.hide()
+
+    def _notify_history_refresh(self):
+        """After a successful lookup, tell MainWindow to refresh history."""
+        if self._main_window:
+            self._main_window._load_history()
+        self.word_looked_up.emit()
+
+    # ── Positioning ──────────────────────────────────────────────────────────
+
+    def show_at_cursor(self, word: str = ""):
+        """Show below the cursor; optionally prefill + lookup a word."""
+        pos  = QCursor.pos()
+        geo  = QApplication.primaryScreen().availableGeometry()
+        w, h = self.width(), self.height()
+
+        # Place below cursor, nudge left so cursor is in the top area
+        x = pos.x() - 20
+        y = pos.y() + 18   # 18px below cursor tip
+
+        # Keep within screen bounds
+        x = max(geo.left(), min(x, geo.right()  - w))
+        y = max(geo.top(),  min(y, geo.bottom() - h))
+
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.search_input.setFocus()
+
+        if word:
+            self.lookup_word(word)
+
+    # ── Auto-hide on outside click ────────────────────────────────────────────
+
+    def eventFilter(self, obj, event):
+        if self.isVisible() and event.type() == QEvent.MouseButtonPress:
+            # Convert global click position to local coords
+            try:
+                global_pos = event.globalPos()
+            except AttributeError:
+                return False
+            if not self.geometry().contains(global_pos):
+                self.hide()
+        return False   # never consume the event
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.hide()
+        else:
+            super().keyPressEvent(event)
+
+
+# ─── Main Window ─────────────────────────────────────────────────────────────
+# Full app: all four tabs, normal window chrome.
+# Only opened from the system tray / Ubuntu header icon menu.
+
+class MainWindow(LookupMixin, QWidget):
+    hotkey_changed = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        c = cfg_mod.cfg()
+        self.setWindowTitle("Vinh's Dictionary")
+        self.setObjectName("vinh-dictionary")
+        self.setMinimumSize(500, 400)
+        self.resize(c.get("window_width", 580), c.get("window_height", 600))
+
+        flags = Qt.Window
+        if c.get("always_on_top", True):
+            flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.setStyleSheet(STYLE)
+
+        self._current_word = ""
+        self._lookup_thread = None
+        self.settings_tab_index = 3
+
+        self._build_ui()
+        self._center_on_screen()
+
+        self._review_timer = QTimer(self)
+        self._review_timer.timeout.connect(self._check_reviews)
+        self._review_timer.start(30 * 60 * 1000)
+        self._check_reviews()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header ──
+        header = QWidget()
+        header.setFixedHeight(52)
+        header.setStyleSheet(f"background: {BG2}; border-bottom: 1px solid {BORDER};")
+        hdr = QHBoxLayout(header)
+        hdr.setContentsMargins(16, 0, 12, 0)
+
+        title = QLabel("📖 Vinh's Dictionary")
+        title.setStyleSheet(f"color: {ACCENT}; font-size: 15px; font-weight: bold;")
+        hdr.addWidget(title)
+        hdr.addStretch()
+
+        self.due_badge = QLabel()
+        self.due_badge.setObjectName("badge_due")
+        self.due_badge.hide()
+        hdr.addWidget(self.due_badge)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet(
+            f"background: transparent; border: none; color: {MUTED}; font-size: 16px;"
+        )
+        close_btn.clicked.connect(self.hide)
+        hdr.addWidget(close_btn)
+        root.addWidget(header)
+
+        # ── Tabs ──
+        self.tabs = QTabWidget()
+
+        # Lookup tab – built with mixin
+        lookup_tab = QWidget()
+        lookup_layout = QVBoxLayout(lookup_tab)
+        lookup_layout.setContentsMargins(14, 14, 14, 14)
+        lookup_layout.setSpacing(10)
+        self._init_lookup_mixin(lookup_layout)
+        self.tabs.addTab(lookup_tab, "Lookup")
+
+        # Review tab
+        self.review_tab_container = QWidget()
+        self.review_tab_layout = QVBoxLayout(self.review_tab_container)
+        self.review_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.tabs.addTab(self.review_tab_container, "Review")
+
+        # History tab
+        self.history_tab = self._build_history_tab()
+        self.tabs.addTab(self.history_tab, "History")
+
+        # Settings tab
+        self.settings_widget = SettingsTab()
+        self.settings_widget.settings_saved.connect(self._on_settings_saved)
+        self.settings_widget.database_cleared.connect(self._load_history)
+        self.settings_widget.database_cleared.connect(self._check_reviews)
+        self.tabs.addTab(self.settings_widget, "Settings")
+        self.settings_tab_index = 3
+
+        root.addWidget(self.tabs)
+
+    # ── History tab ───────────────────────────────────────────────────────────
+
+    def _build_history_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        top_row = QHBoxLayout()
+        title = QLabel("Your word history")
+        title.setStyleSheet(f"color: {TEXT_DIM}; font-size: 13px;")
+        top_row.addWidget(title)
+        top_row.addStretch()
+        refresh_btn = QPushButton("↻ Refresh")
+        refresh_btn.setFixedWidth(90)
+        refresh_btn.clicked.connect(self._load_history)
+        top_row.addWidget(refresh_btn)
+        layout.addLayout(top_row)
+
+        self.history_table = QTableWidget()
+        self.history_table.setColumnCount(5)
+        self.history_table.setHorizontalHeaderLabels(
+            ["Word", "Last Lookup", "Next Review", "Stage", "Status"]
+        )
+        h = self.history_table.horizontalHeader()
+        h.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in range(1, 5):
+            h.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.cellDoubleClicked.connect(self._history_double_click)
+        layout.addWidget(self.history_table)
+
+        hint = QLabel("💡 Double-click a word to look it up again")
+        hint.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
+        layout.addWidget(hint)
+
+        self._load_history()
+        return widget
 
     def _load_history(self):
         rows = db.get_word_history(100)
@@ -1075,7 +1204,9 @@ class DictionaryPopup(QWidget):
             self.history_table.setItem(i, 3, QTableWidgetItem(stage_names[min(stage_idx, 5)]))
             status = row.get("status") or "pending"
             sit = QTableWidgetItem(status)
-            sit.setForeground(QColor(GREEN if status == "mastered" else YELLOW if status == "pending" else MUTED))
+            sit.setForeground(QColor(
+                GREEN if status == "mastered" else YELLOW if status == "pending" else MUTED
+            ))
             self.history_table.setItem(i, 4, sit)
 
     def _history_double_click(self, row, col):
@@ -1101,14 +1232,12 @@ class DictionaryPopup(QWidget):
             item = self.review_tab_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-
         if not reviews:
             empty = QLabel("✅  No words due for review right now!\nCheck back later.")
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(f"color: {GREEN}; font-size: 15px;")
             self.review_tab_layout.addWidget(empty)
             return
-
         rw = ReviewWidget(reviews)
         rw.review_done.connect(self._on_review_done)
         self.review_tab_layout.addWidget(rw)
@@ -1117,27 +1246,20 @@ class DictionaryPopup(QWidget):
         self._check_reviews()
         self._load_history()
 
-    # ── Settings save handler ─────────────────────────────────────────────────
+    # ── Settings ──────────────────────────────────────────────────────────────
 
     def _on_settings_saved(self, new_cfg: dict):
-        # Update window flags (always_on_top)
         flags = Qt.Window
         if new_cfg.get("always_on_top", True):
             flags |= Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.show()
-
-        # Update search placeholder with new hotkey
-        hotkey = new_cfg.get("hotkey", "f6").upper()
+        hotkey = new_cfg.get("hotkey", "f9").upper()
         self.search_input.setPlaceholderText(
-            f"Type a word here, or highlight text and press {hotkey}..."
+            f"Type a word or highlight text → {hotkey}…"
         )
-
-        # Resize if changed
         self.resize(new_cfg.get("window_width", 580), new_cfg.get("window_height", 600))
-
-        # Emit hotkey change for main.py to restart listener
-        self.hotkey_changed.emit(new_cfg.get("hotkey", "f6"))
+        self.hotkey_changed.emit(new_cfg.get("hotkey", "f9"))
 
     # ── Window helpers ────────────────────────────────────────────────────────
 
@@ -1145,15 +1267,12 @@ class DictionaryPopup(QWidget):
         geo = QApplication.primaryScreen().geometry()
         self.move((geo.width() - self.width()) // 2, (geo.height() - self.height()) // 2)
 
-    def show_at_cursor(self):
-        if cfg_mod.cfg().get("show_at_cursor", True):
-            pos = QCursor.pos()
-            geo = QApplication.primaryScreen().geometry()
-            x = min(pos.x(), geo.width()  - self.width()  - 20)
-            y = min(pos.y() + 20, geo.height() - self.height() - 20)
-            self.move(max(x, 0), max(y, 0))
-        else:
-            self._center_on_screen()
+    def show_window(self, tab: str = ""):
+        """Open/raise the main window, optionally jumping to a tab."""
+        tab_map = {"review": 1, "history": 2, "settings": self.settings_tab_index}
+        if tab in tab_map:
+            self.tabs.setCurrentIndex(tab_map[tab])
+        self._center_on_screen()
         self.show()
         self.raise_()
         self.activateWindow()
@@ -1163,3 +1282,11 @@ class DictionaryPopup(QWidget):
             self.hide()
         else:
             super().keyPressEvent(event)
+
+    # Keep old name as alias so main.py keeps working
+    def show_at_cursor(self):
+        self.show_window()
+
+
+# ─── Backward-compat alias ───────────────────────────────────────────────────
+DictionaryPopup = MainWindow
