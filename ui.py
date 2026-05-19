@@ -957,8 +957,27 @@ class QuickPopup(LookupMixin, QWidget):
 
         self._build_ui()
 
-        # Install app-level event filter to detect clicks outside
-        QApplication.instance().installEventFilter(self)
+        # Hide when the user switches to another app window.
+        # focusWindowChanged fires on both XCB and Wayland:
+        #   new_win=None  → focus went to a non-Qt window (another app, desktop)
+        #   new_win=self  → we gained focus – do nothing
+        #   new_win=other → another Qt window in our own process got focus
+        QApplication.instance().focusWindowChanged.connect(self._on_focus_changed)
+
+    def _on_focus_changed(self, new_win):
+        """Hide when focus leaves this popup entirely."""
+        if not self.isVisible():
+            return
+        # new_win is the QWindow that received focus (can be None)
+        # We hide unless the focus is still on us or one of our child QWindows
+        if new_win is None:
+            # Focus went to a non-Qt app – hide immediately
+            QTimer.singleShot(0, self.hide)
+        else:
+            # Check if the new focus window belongs to this widget
+            our_win = self.windowHandle()
+            if our_win is None or new_win != our_win:
+                QTimer.singleShot(0, self.hide)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -1020,11 +1039,9 @@ class QuickPopup(LookupMixin, QWidget):
         geo  = QApplication.primaryScreen().availableGeometry()
         w, h = self.width(), self.height()
 
-        # Place below cursor, nudge left so cursor is in the top area
         x = pos.x() - 20
         y = pos.y() + 18   # 18px below cursor tip
 
-        # Keep within screen bounds
         x = max(geo.left(), min(x, geo.right()  - w))
         y = max(geo.top(),  min(y, geo.bottom() - h))
 
@@ -1036,19 +1053,6 @@ class QuickPopup(LookupMixin, QWidget):
 
         if word:
             self.lookup_word(word)
-
-    # ── Auto-hide on outside click ────────────────────────────────────────────
-
-    def eventFilter(self, obj, event):
-        if self.isVisible() and event.type() == QEvent.MouseButtonPress:
-            # Convert global click position to local coords
-            try:
-                global_pos = event.globalPos()
-            except AttributeError:
-                return False
-            if not self.geometry().contains(global_pos):
-                self.hide()
-        return False   # never consume the event
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
