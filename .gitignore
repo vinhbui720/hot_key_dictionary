@@ -1,0 +1,24 @@
+# ── Runtime data (never commit) ──
+data/dictionary.db
+data/app.lock
+data/*.signal
+data/config.json
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── NLTK corpus (large, re-downloaded by setup) ──
+data/nltk/
+
+# ── Ollama models (huge) ──
+models/
