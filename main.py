@@ -51,6 +51,7 @@ def acquire_lock():
         fcntl.flock(_lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _lock_fh.write(str(os.getpid()))
         _lock_fh.flush()
+        os.fsync(_lock_fh.fileno())   # make PID visible to start.sh immediately
         return True
     except OSError:
         return False   # another instance is running
@@ -448,6 +449,17 @@ def _run_app():
     # ── Start hotkey listener (XWayland apps) + sync GNOME binding (all apps) ──
     hotkey_manager.start()
     sync_gnome_binding(cfg_mod.cfg().get("hotkey", "f9"))
+
+    # ── Show window on startup ────────────────────────────────────────────────
+    # Open immediately so the user sees the app appeared; honour tab hint from
+    # start.sh (DICT_OPEN_TAB env var set when called with --review/--settings)
+    open_tab = os.environ.get("DICT_OPEN_TAB", "").strip().lower()
+    def _show_on_startup():
+        tab_map = {"review": 1, "settings": popup.settings_tab_index}
+        if open_tab in tab_map:
+            popup.tabs.setCurrentIndex(tab_map[open_tab])
+        popup.show_at_cursor()
+    QTimer.singleShot(400, _show_on_startup)   # small delay so tray icon settles first
 
     # ── Startup notification ──
     hk = cfg_mod.cfg().get("hotkey", "F6").upper()
