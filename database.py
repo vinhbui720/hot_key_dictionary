@@ -202,5 +202,56 @@ def get_word(word: str):
     return dict(row) if row else None
 
 
+def clear_all() -> int:
+    """Delete all words, reviews and sessions. Returns count of deleted words."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM words")
+    count = c.fetchone()[0]
+    c.executescript("""
+        DELETE FROM review_sessions;
+        DELETE FROM review_schedule;
+        DELETE FROM words;
+    """)
+    conn.commit()
+    conn.close()
+    return count
+
+
+def delete_word(word: str) -> bool:
+    """Delete a single word and all its review records."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM words WHERE word = ?", (word.lower(),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return False
+    wid = row[0]
+    c.execute("DELETE FROM review_sessions WHERE word_id = ?", (wid,))
+    c.execute("DELETE FROM review_schedule WHERE word_id = ?", (wid,))
+    c.execute("DELETE FROM words WHERE id = ?", (wid,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_stats() -> dict:
+    """Return summary stats for the Settings tab."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM words")
+    total = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM review_schedule WHERE status = 'pending'")
+    pending = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM review_schedule WHERE status = 'mastered'")
+    mastered = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM review_sessions")
+    sessions = c.fetchone()[0]
+    conn.close()
+    return {"total_words": total, "pending_reviews": pending,
+            "mastered": mastered, "total_sessions": sessions}
+
+
 # Init on import
 init_db()

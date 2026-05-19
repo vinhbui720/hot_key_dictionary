@@ -443,7 +443,8 @@ class ReviewWidget(QWidget):
 # ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 class SettingsTab(QWidget):
-    settings_saved = pyqtSignal(dict)   # emits full config on save
+    settings_saved  = pyqtSignal(dict)
+    database_cleared = pyqtSignal()     # tells parent to refresh history
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -602,7 +603,7 @@ class SettingsTab(QWidget):
         layout.addWidget(win_group)
 
         # ── Save button ──────────────────────────────────────────
-        save_btn = QPushButton("💾  Save Settings")
+        save_btn = QPushButton("Save Settings")
         save_btn.setObjectName("btn_save")
         save_btn.setFixedHeight(42)
         save_btn.clicked.connect(self._save)
@@ -612,7 +613,31 @@ class SettingsTab(QWidget):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setStyleSheet(f"color: {GREEN}; font-size: 13px;")
         layout.addWidget(self.status_label)
+
+        # ── Database section ──────────────────────────────────────────────────
+        db_group = QGroupBox("DATABASE")
+        db_layout = QVBoxLayout(db_group)
+        db_layout.setSpacing(10)
+
+        self.db_stats_label = QLabel()
+        self.db_stats_label.setStyleSheet(f"color: {TEXT_DIM}; font-size: 12px;")
+        self.db_stats_label.setWordWrap(True)
+        db_layout.addWidget(self.db_stats_label)
+
+        db_btn_row = QHBoxLayout()
+        refresh_db_btn = QPushButton("Refresh Stats")
+        refresh_db_btn.clicked.connect(self._refresh_db_stats)
+        db_btn_row.addWidget(refresh_db_btn)
+
+        clear_btn = QPushButton("Clear All Data")
+        clear_btn.setStyleSheet(f"background: {RED}; color: white; border: none; font-weight: bold;")
+        clear_btn.clicked.connect(self._clear_database)
+        db_btn_row.addWidget(clear_btn)
+        db_layout.addLayout(db_btn_row)
+        layout.addWidget(db_group)
+
         layout.addStretch()
+        self._refresh_db_stats()
 
         scroll.setWidget(container)
         outer = QVBoxLayout(self)
@@ -671,6 +696,39 @@ class SettingsTab(QWidget):
         self.status_label.setText("✅ Saved! Hotkey and window changes take effect immediately.")
         QTimer.singleShot(3000, lambda: self.status_label.setText(""))
         self.settings_saved.emit(new_cfg)
+
+    def _refresh_db_stats(self):
+        stats = db.get_stats()
+        self.db_stats_label.setText(
+            f"Words looked up: {stats['total_words']}   |   "
+            f"Pending review: {stats['pending_reviews']}   |   "
+            f"Mastered: {stats['mastered']}   |   "
+            f"Review sessions: {stats['total_sessions']}"
+        )
+
+    def _clear_database(self):
+        stats = db.get_stats()
+        total = stats["total_words"]
+        if total == 0:
+            self.status_label.setText("Database is already empty.")
+            return
+        reply = QMessageBox.question(
+            self, "Clear all data",
+            f"This will permanently delete all {total} word(s) and their "
+            f"review history.\n\nAre you sure?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            deleted = db.clear_all()
+            self.status_label.setStyleSheet(f"color: {RED}; font-size: 13px;")
+            self.status_label.setText(f"Deleted {deleted} words and all review history.")
+            QTimer.singleShot(4000, lambda: (
+                self.status_label.setText(""),
+                self.status_label.setStyleSheet(f"color: {GREEN}; font-size: 13px;")
+            ))
+            self._refresh_db_stats()
+            self.database_cleared.emit()
 
 
 # ─── Main Dictionary Popup ────────────────────────────────────────────────────
@@ -738,19 +796,21 @@ class DictionaryPopup(QWidget):
         self.tabs = QTabWidget()
 
         self.lookup_tab = self._build_lookup_tab()
-        self.tabs.addTab(self.lookup_tab, "🔍 Lookup")
+        self.tabs.addTab(self.lookup_tab, "Lookup")
 
         self.review_tab_container = QWidget()
         self.review_tab_layout = QVBoxLayout(self.review_tab_container)
         self.review_tab_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs.addTab(self.review_tab_container, "🔁 Review")
+        self.tabs.addTab(self.review_tab_container, "Review")
 
         self.history_tab = self._build_history_tab()
-        self.tabs.addTab(self.history_tab, "📚 History")
+        self.tabs.addTab(self.history_tab, "History")
 
         self.settings_widget = SettingsTab()
         self.settings_widget.settings_saved.connect(self._on_settings_saved)
-        self.tabs.addTab(self.settings_widget, "⚙️ Settings")
+        self.settings_widget.database_cleared.connect(self._load_history)
+        self.settings_widget.database_cleared.connect(self._check_reviews)
+        self.tabs.addTab(self.settings_widget, "Settings")
         self.settings_tab_index = 3
 
         root.addWidget(self.tabs)

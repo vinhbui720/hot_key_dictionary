@@ -261,9 +261,27 @@ def sync_gnome_binding(hotkey: str):
         log.warning(f"[gnome] Could not sync keybinding: {e}")
 
 
-# ─── Tray icon (proper SVG-based) ────────────────────────────────────────────
+# ─── Tray icon ────────────────────────────────────────────────────────────────
 def make_tray_icon() -> QIcon:
-    """Create a clean book icon for the tray using QPainter."""
+    """Load icon from installed PNG, fall back to drawing one."""
+    # Try installed icon first (best quality, matches .desktop file)
+    icon_paths = [
+        Path.home() / ".local/share/icons/hicolor/256x256/apps/vinh-dictionary.png",
+        Path.home() / ".local/share/icons/hicolor/48x48/apps/vinh-dictionary.png",
+        APP_DIR / "assets" / "icon.png",
+    ]
+    for path in icon_paths:
+        if path.exists():
+            icon = QIcon(str(path))
+            if not icon.isNull():
+                return icon
+
+    # Fallback: draw it
+    return _draw_tray_icon()
+
+
+def _draw_tray_icon() -> QIcon:
+    """Draw a book icon programmatically."""
     size = 64
     img = QImage(size, size, QImage.Format_ARGB32_Premultiplied)
     img.fill(Qt.transparent)
@@ -326,6 +344,11 @@ def _run_app():
     # Import UI after QApplication is created
     from ui import DictionaryPopup
     popup = DictionaryPopup()
+
+    # Set window icon (shows in taskbar + alt-tab)
+    app_icon = make_tray_icon()
+    app.setWindowIcon(app_icon)
+    popup.setWindowIcon(app_icon)
 
     # ── Signal file watcher ──────────────────────────────────────────────────
     # Polls signal files written by start.sh / hotkey_trigger.py:
