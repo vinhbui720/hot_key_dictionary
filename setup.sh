@@ -98,7 +98,7 @@ Icon=vinh-dictionary
 Terminal=false
 StartupNotify=true
 StartupWMClass=vinh-dictionary
-Categories=Education;Dictionary;Office;
+Categories=Education;Dictionary;
 Keywords=dictionary;ielts;english;vocabulary;translate;
 Actions=Review;Settings;
 
